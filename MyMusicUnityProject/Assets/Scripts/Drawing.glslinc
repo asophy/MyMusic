@@ -1,0 +1,272 @@
+﻿
+#include "UnityCG.cginc"
+
+static const float PI = 3.14;
+
+
+struct Input
+{
+	float2 uv_MainTex;
+};
+struct CPalette
+{
+	float4 fillC;
+	float4 penC;
+	float penW;
+};
+float4 cpolorPalette(int num) {
+	float4 Colors[] = {
+			float4(0.0, 0.0, 0.0, 0),
+			float4(0.8, 0.3, 0.5, 1),
+			float4(0.8, 0.3, 0.3, 1),
+			float4(0.3, 0.8, 0.4, 1),
+			float4(0.6, 0.3, 0.6, 1),
+			float4(0.3, 0.5, 0.9, 1),
+			float4(0.3, 0.9, 0.3, 1),
+			float4(0.3, 0.5, 0.9, 1),
+			float4(0.4, 0.3, 0.8, 1),
+			float4(0.3, 0.5, 0.9, 1),
+			float4(0.3, 0.3, 0.7, 1),
+			float4(0.1, 0.7, 0.1, 1),
+			float4(0.3, 0.6, 0.7, 1)
+
+	};
+
+	int n = fmod((float)num, 7.0);
+
+	return Colors[n];
+
+
+}
+
+
+float disc(float2 p, float radius) {
+	if (length(p) < radius) {
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+float circle(float2 p, float radius, float width) {
+	return disc(p , radius + width / 2) - disc(p, radius - width / 2);
+
+}
+float4 Circle(float2 p, float2 c, float radius, CPalette cp) {
+
+	float4 res;
+    float w = cp.penW;
+    res = disc(p - c, radius - w / 2) * cp.fillC + circle(p - c, radius, w) * cp.penC;
+
+	return res;
+
+}
+
+float2x2 rotmat(float degree) {
+	float deg = degree;
+	float2x2 mat = {
+		cos(deg), -sin(deg), // row 1
+			sin(deg), cos(deg) // row 2
+	};
+	return mat;
+}
+
+float2 rot(float2 p, float2 c, float degree)
+{
+    return mul(p - c, rotmat(degree)) + c;
+
+}
+float2 rot(float2 p,float degree)
+{
+    return mul(p , rotmat(degree));
+
+}
+float fan(float2 p, float radius, float degree) {
+	float2 up = float2(0, radius) ;
+	float2 uprot = mul(float2(0, radius), rotmat(degree - PI)) ;
+	//float2 up = rot(float2(0, 1), c, -degree * PI / 2);
+    float2 l = mul(p, rotmat( - PI / 2));
+	//float2 l = p - c;
+	float ret = 0;
+    if (length(p) < radius && atan2(l.y, l.x) > PI - degree)
+    {
+		ret = 1;
+	}else {
+		ret = 0;
+	}
+    return ret ;
+}
+
+float Line(float2 p, float2 p1, float2 p2, float width) {
+
+	float deg = atan2((p2.y - p1.y) , (p2.x - p1.x));
+	float2 rp = rot(p, p1, deg);
+	float2 rp1 = rot(p1, p1, deg);
+	float2 rp2 = rot(p2 , p1, deg);
+	float left = rp1.x;
+	float right = rp2.x;
+	float top = rp1.y + width / 2;
+	float bottom = rp1.y - width / 2;
+	float ret = 0;
+	if (
+		rp.x > left &&
+		rp.x < right &&
+		rp.y > bottom &&
+		rp.y < top
+		) {
+		ret = 1;
+	}
+	else {
+		ret = 0;
+	}
+	return ret ;
+}
+
+float ying(float2 p, float2 c, float radius) {
+	float halfDisk = fan(p, radius, 0);
+	float m1 = disc(p - float2(c.x, c.y + radius / 2), radius / 2);
+	float m2 = disc(p - float2(c.x, c.y - radius / 2), radius / 2);
+	return clamp(halfDisk - m1 + m2, 0, 1);
+}
+float yang(float2 p, float2 c, float radius) {
+	return ying(rot(p, c, PI), c, radius);
+}
+float yingyang(float2 p, float2 center, float radius) {
+	return  ying(p, center, radius) - yang(p, center, radius);
+}
+fixed4 yingyang2(float2 p, float2 center, float radius, float4 color) {
+	fixed4 yv = yingyang(p, center, radius) * color;
+	fixed4 yvv2 = yingyang(p, float2(center.x, center.y - radius / 2), radius / 2) * color;
+	fixed4 yvv3 = yingyang(p, float2(center.x, center.y + radius / 2), radius / 2) * color;
+	return yv + yvv2 + yvv3;
+}
+float2 xrepeat(float2 p, float w) {
+	//return p;
+	//return float2(fmod(p.x, w) - w / 2.0, p.y);
+	return float2(fmod(p.x, w), p.y);
+}
+float2 yrepeat(float2 p, float w) {
+	//return p;
+	//return float2(p.x, fmod(p.y, w) - w / 2.0);
+	return float2(p.x, fmod(p.y, w));
+}
+float2 toCircle(float r, float rad) {
+	return float2(r * cos(rad), r * sin(rad));
+}
+float2 hexP(float2 p, float r, int num) {
+	if (num == 0) {
+		return 0;
+	}
+	return p + toCircle(r, num * 1.0 * 2.0 * PI / 6.0);
+}
+float4 hexCircle(float r, float2 p, CPalette cp) {
+	float2 c = float2(0 , 0);
+
+	float4 cc1 = float4(0.2, 0, 0, 1);
+    float4 cc2 = float4(0, 0.2, 0, 1);
+    float4 cc3 = float4(0, 0, 0.2, 1);
+	return clamp(
+		cc1 * Circle(p,c, r, cp) / 2 +
+		cc2 * Circle(hexP(p, r, 1), c, r, cp) -
+		cc3 * Circle(hexP(p, r, 2), c, r, cp) / 2 +
+		cc1 * Circle(hexP(p, r, 3), c, r, cp) -
+		cc2 * Circle(hexP(p, r, 4), c, r, cp) / 2 +
+		cc3 * Circle(hexP(p, r, 5), c, r, cp) -
+		cc1 * Circle(hexP(p, r, 6), c, r, cp) / 2
+		, 0,1);
+
+}
+float4 metatron(float2 p, float r, CPalette cp) {
+	//				float lineW = r * r * 1.0 / 3.0;// max 1/3 will fill whole screen...
+	//float2 mp = yrepeat(p, r / 1.414);
+	float2 mp = p;
+	//float2 mp = p;
+
+	return
+		hexCircle(r, hexP(mp, r, 1), cp) +
+		hexCircle(r, hexP(mp, r, 2), cp) +
+		hexCircle(r, hexP(mp, r, 3), cp) +
+		hexCircle(r, hexP(mp, r, 4), cp) +
+		hexCircle(r, hexP(mp, r, 5), cp) +
+		hexCircle(r, hexP(mp, r, 6), cp)
+		;
+}
+
+float isinH(float2 p, float rad, int i, int j, int l ) {
+	return disc(0 - hexP(hexP(hexP(p, rad, i), rad, j), rad, l),  rad);
+}
+float2 fmod2(float2 a,float2 b){
+			
+	return float2(abs(fmod(a.x, b.x)), abs(fmod(a.y, b.y)));
+			
+}
+float4 grid(float2 p, float2 unit, CPalette cp)
+{
+    float2 m = fmod2(p, unit);
+    int2 cellP = int2(p.x / unit.x, p.y / unit.y);
+
+    float4 res = (float4(0, (float) abs(cellP.x * unit.x),    abs((float) cellP.y * unit.y), 1));
+    res += Line(m, float2(0, 0), float2(1, 0), cp.penW)*cp.penC;
+    res += Line(m, 0, float2(0, 1), cp.penW) * cp.penC;
+
+    return res;
+
+}
+
+
+
+float4 tl2(float2 p, float4 tr, CPalette cp) {
+    float vout = tr.x;
+    float env = tr.y;
+    float pitch = tr.z;
+    float loopp = tr.w;
+    float rad = ((pitch) + 0.0);
+    float ll = sqrt(3.0 / 4.0) * rad;
+    float2 unit = float2(rad, ll);
+    float2 one = float2(1, 1);
+    float2 mp = (fmod2(p + unit, unit * 2) - unit);
+    float4 res = circle(mp, rad, cp.penW) * cp.penC;
+    res += circle(hexP(hexP(mp, rad, 2), rad, 1), rad, cp.penW) * cp.penC;
+    res += circle(hexP(hexP(mp, rad, 4), rad, 5), rad, cp.penW) * cp.penC;
+
+
+
+    res += circle(hexP(hexP(mp, rad, 3), rad, 2), rad, cp.penW) * cp.penC;
+    res += circle(hexP(hexP(mp, rad, 3), rad, 4), rad, cp.penW) * cp.penC;
+    res += circle(hexP(hexP(mp, rad, 6), rad, 1), rad, cp.penW) * cp.penC;
+    res += circle(hexP(hexP(mp, rad, 6), rad, 5), rad, cp.penW) * cp.penC;
+
+
+				//res += circle(hexP(mp, rad, 2), rad, cp.penW) * cp.penC;
+    res += circle(hexP(hexP(mp, rad, 2), rad, 2), rad, cp.penW) * cp.penC;
+    res += circle(hexP(hexP(mp, rad, 4), rad, 4), rad, cp.penW) * cp.penC;
+    res += circle(hexP(hexP(mp, rad, 1), rad, 1), rad, cp.penW) * cp.penC;
+    res += circle(hexP(hexP(mp, rad, 5), rad, 5), rad, cp.penW) * cp.penC;
+
+				//res += Line(mp, float2(0, -1), float2(0, 1), cp.penW) * cp.penC;
+				//res += Line(mp, float2(-1, 0), float2(1, 0), cp.penW) * cp.penC;
+
+    for (int i = 1; i < 7; i++)
+    {
+					res += circle(hexP(mp, rad, i), rad, cp.penW) * cp.penC;
+					//res += circle(hexP( hexP(mp, rad, i), rad, i), rad, cp.penW) * cp.penC;
+    }
+    return res * env;
+		;
+}
+float4 flowerOfLife(float2 p, float r, CPalette cp)
+{
+	//				float lineW = r * r * 1.0 / 3.0;// max 1/3 will fill whole screen...
+    float2 mp = p;
+					//float2 mpp = yrepeat(hexP(p,r,1), 4.0 * r * sin(2.0 * PI / 6.0));
+					//float  res = tl2(mp, r, cp) + tl2(mpp, r, cp);
+    float4 res = tl2(mp, r, cp);
+					//float  res = tl2(mp, r, lineW) ;
+    return clamp(res, 0, 1);
+}
+
+
+float mdm(float t) {
+	return (4-( t) * (3 *t) );
+}
+
